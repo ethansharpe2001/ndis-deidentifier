@@ -6,3 +6,5 @@ dist/
 pybuild/
 *.spec.bak
 sample_bsp*.docx
+ci-artifacts/
+download.log
