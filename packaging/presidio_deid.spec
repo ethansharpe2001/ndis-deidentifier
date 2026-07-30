@@ -55,6 +55,17 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
+
+# tldextract (a dependency of presidio's email recognizer) can leave a
+# runtime-created ".suffix_cache" directory inside its own package folder,
+# full of long hashed filenames (e.g. "<32-hex-chars>.tldextract.json.lock").
+# If that exists on the build machine when PyInstaller runs, it gets swept
+# into the bundle and blows past Windows' 260-character path limit once
+# nested inside a real install path. It isn't needed - EmailRecognizer only
+# calls tldextract.extract(), which works fine from the package's built-in
+# offline snapshot (.tld_set_snapshot) with no cache present - so strip it.
+a.datas = [d for d in a.datas if "suffix_cache" not in d[0].replace("\\", "/")]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

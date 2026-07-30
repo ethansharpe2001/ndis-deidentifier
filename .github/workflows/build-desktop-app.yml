@@ -18,6 +18,12 @@ jobs:
             artifact-name: NDIS-Deidentifier-macos
             dist-path: dist/NDIS-Deidentifier.app
     runs-on: ${{ matrix.os }}
+    env:
+      # Keep tldextract's runtime cache out of its own package folder so it
+      # never gets swept into the PyInstaller bundle (see comment in
+      # packaging/presidio_deid.spec) - belt-and-braces alongside the
+      # a.datas filter there.
+      TLDEXTRACT_CACHE: ${{ runner.temp }}/tldextract-cache
     steps:
       - uses: actions/checkout@v4
 
