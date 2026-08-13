@@ -23,7 +23,6 @@ and the value routinely sit in different cells of the same row.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
 from typing import List, Tuple
 
 from docx import Document
@@ -33,19 +32,10 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
-from . import roles
-from .recognizers import ENTITIES
+from . import pii_engine
+from .pii_engine import DeidResult
 
-SCORE_THRESHOLD = 0.4
-
-
-@dataclass
-class DeidResult:
-    counts: Counter = field(default_factory=Counter)
-
-    @property
-    def total(self) -> int:
-        return sum(self.counts.values())
+__all__ = ["DeidResult", "deidentify_document", "deidentify_docx_file"]
 
 
 def _get_runs(paragraph: Paragraph) -> List[Run]:
@@ -61,54 +51,15 @@ def _merge_run_text(runs: List[Run]) -> str:
 
 
 def _apply_replacements(runs: List[Run], full_text: str, spans: List[Tuple[int, int, str]]) -> str:
-    """Builds the redacted text from `spans` (start, end, tag) and writes it
-    into the first run, clearing the rest. Returns the new text.
+    """Writes the redacted text (built from `spans`) into the first run,
+    carrying that run's formatting, and clears the rest. Returns the new
+    text.
     """
-    parts = []
-    cursor = 0
-    for start, end, tag in spans:
-        parts.append(full_text[cursor:start])
-        parts.append(f"[{tag}]")
-        cursor = end
-    parts.append(full_text[cursor:])
-    new_text = "".join(parts)
-
+    new_text = pii_engine.apply_spans(full_text, spans)
     runs[0].text = new_text
     for r in runs[1:]:
         r.text = ""
     return new_text
-
-
-def _select_non_overlapping(results, full_text: str, context_text: str, stats: Counter):
-    """Greedily picks non-overlapping analyzer results (highest score
-    first), classifies each into a placeholder tag, and returns the
-    accepted (start, end, tag) spans sorted by position."""
-    accepted: List[Tuple[int, int]] = []
-    tagged: List[Tuple[int, int, str]] = []
-
-    boosted = [
-        (roles.boost_score(r.entity_type, r.score, context_text), r) for r in results
-    ]
-    # Tie-break on span length so a specific, longer match (e.g. a full
-    # street-address regex) wins over a shorter overlapping NER fragment
-    # (e.g. just the suburb) scored the same.
-    for score, result in sorted(
-        boosted, key=lambda pair: (-pair[0], -(pair[1].end - pair[1].start))
-    ):
-        if score < SCORE_THRESHOLD:
-            continue
-        if any(not (result.end <= s or result.start >= e) for s, e in accepted):
-            continue
-        entity_text = full_text[result.start : result.end]
-        tag = roles.classify(result.entity_type, entity_text, context_text)
-        if tag is None:
-            continue
-        accepted.append((result.start, result.end))
-        tagged.append((result.start, result.end, tag))
-        stats[tag] += 1
-
-    tagged.sort(key=lambda span: span[0])
-    return tagged
 
 
 def _process_paragraph(paragraph: Paragraph, analyzer, stats: Counter, extra_context: str = "") -> None:
@@ -120,18 +71,7 @@ def _process_paragraph(paragraph: Paragraph, analyzer, stats: Counter, extra_con
         return
 
     context_text = f"{full_text} {extra_context}"
-    results = analyzer.analyze(text=full_text, entities=ENTITIES, language="en")
-
-    # spaCy's NER leans heavily on casing cues, so it routinely misses names
-    # in ALL-CAPS text (a document title/heading like "JOHN SMITH" reads very
-    # differently to it than "John Smith"). Title-casing is a length- and
-    # offset-preserving transform, so a second PERSON-only pass on the
-    # title-cased text can be merged straight back into the same spans.
-    if full_text.isupper():
-        titled_results = analyzer.analyze(text=full_text.title(), entities=["PERSON"], language="en")
-        results = results + titled_results
-
-    spans = _select_non_overlapping(results, full_text, context_text, stats)
+    spans = pii_engine.select_spans(analyzer, full_text, context_text, stats)
     if not spans:
         return
 

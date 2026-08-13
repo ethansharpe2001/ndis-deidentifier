@@ -1,13 +1,14 @@
 """Drag-and-drop desktop GUI for de-identifying NDIS Behaviour Support Plan
-.docx files. Runs the (slow to load, slow to run) presidio analyzer on a
-background thread so the window never freezes; the worker thread only ever
-talks to the UI thread through a thread-safe queue polled via `after()`.
+files (.docx, .doc, .txt). Runs the (slow to load, slow to run) presidio
+analyzer on a background thread so the window never freezes; the worker
+thread only ever talks to the UI thread through a thread-safe queue polled
+via `after()`.
 
 Styling: ttkbootstrap gives the stock Tk widget set a flat, modern
-Bootstrap-inspired theme (with a one-line light/dark toggle) for free,
-without pulling in a heavyweight UI framework. It's layered on top of
-tkinterdnd2 (drag-and-drop) using ttkbootstrap's own documented recipe for
-combining the two: `Window` + `TkinterDnD.DnDWrapper` as a mixin.
+Bootstrap-inspired theme for free, without pulling in a heavyweight UI
+framework. It's layered on top of tkinterdnd2 (drag-and-drop) using
+ttkbootstrap's own documented recipe for combining the two: `Window` +
+`TkinterDnD.DnDWrapper` as a mixin.
 """
 from __future__ import annotations
 
@@ -33,9 +34,14 @@ except ImportError:  # pragma: no cover - exercised only if tkinterdnd2 missing
     _DND_AVAILABLE = False
     _Base = ttkb.Window
 
-from .deidentify import FileOutcome, deidentify_files, get_analyzer
+from .deidentify import SUPPORTED_EXTENSIONS, FileOutcome, deidentify_files, get_analyzer
 
-_DOCX_FILETYPES = [("Word documents", "*.docx")]
+_DOCX_FILETYPES = [
+    ("Word & text documents", "*.docx *.doc *.txt"),
+    ("Word documents", "*.docx *.doc"),
+    ("Text files", "*.txt"),
+    ("All files", "*.*"),
+]
 _THEME = "bootstrap-light"
 
 
@@ -87,8 +93,8 @@ class App(_Base):
         ).pack(anchor="w")
         ttkb.Label(
             text_col,
-            text="Drop in a .docx plan, get a de-identified copy back - names, dates of birth,\n"
-            "NDIS/Medicare numbers, addresses, contact details and provider names removed.",
+            text="Drop in a .docx, .doc or .txt plan, get a de-identified copy back - names, dates of\n"
+            "birth, NDIS/Medicare numbers, addresses, contact details and provider names removed.",
             bootstyle="inverse-primary",
             font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(4, 0))
@@ -132,9 +138,9 @@ class App(_Base):
         if active:
             message = "Release to add files"
         elif _DND_AVAILABLE:
-            message = "Drag .docx files here, or click to browse"
+            message = "Drag .docx, .doc or .txt files here, or click to browse"
         else:
-            message = "Click to browse for .docx files"
+            message = "Click to browse for .docx, .doc or .txt files"
         c.create_text(
             w / 2, h / 2 + 22, text=message, font=("Segoe UI", 10), fill=text_color, justify="center"
         )
@@ -226,7 +232,7 @@ class App(_Base):
     def _browse_files(self) -> None:
         if self._processing:
             return
-        paths = filedialog.askopenfilenames(title="Choose NDIS plan .docx files", filetypes=_DOCX_FILETYPES)
+        paths = filedialog.askopenfilenames(title="Choose NDIS plan files", filetypes=_DOCX_FILETYPES)
         if paths:
             self._start_processing(list(paths))
 
@@ -235,12 +241,13 @@ class App(_Base):
         if self._processing:
             return
         raw_paths = self.tk.splitlist(event.data)
-        docx_paths = [p for p in raw_paths if p.lower().endswith(".docx")]
-        skipped = len(raw_paths) - len(docx_paths)
+        valid_paths = [p for p in raw_paths if p.lower().endswith(SUPPORTED_EXTENSIONS)]
+        skipped = len(raw_paths) - len(valid_paths)
         if skipped:
-            self._log(f"Ignored {skipped} non-.docx file(s).", "info")
-        if docx_paths:
-            self._start_processing(docx_paths)
+            supported = ", ".join(SUPPORTED_EXTENSIONS)
+            self._log(f"Ignored {skipped} unsupported file(s). Supported types: {supported}.", "info")
+        if valid_paths:
+            self._start_processing(valid_paths)
 
     # ---------- processing ----------
 
@@ -279,7 +286,7 @@ class App(_Base):
         if kind == "analyzer_ready":
             self._analyzer_ready = True
             self._status_dot.configure(bootstyle="success")
-            self.status_var.set("Ready. Drop NDIS plan .docx files above to de-identify them.")
+            self.status_var.set("Ready. Drop NDIS plan files above to de-identify them.")
         elif kind == "analyzer_error":
             self._status_dot.configure(bootstyle="danger")
             self.status_var.set("Failed to load PII detection engine.")
@@ -292,7 +299,7 @@ class App(_Base):
             self._processing = False
             self.progress.configure(value=0)
             self._status_dot.configure(bootstyle="success")
-            self.status_var.set("Ready. Drop NDIS plan .docx files above to de-identify them.")
+            self.status_var.set("Ready. Drop NDIS plan files above to de-identify them.")
             self._report(payload)
 
     def _report(self, outcomes: list[FileOutcome]) -> None:

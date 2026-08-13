@@ -1,16 +1,22 @@
 """Top-level API used by both the GUI and tests: load the analyzer once,
-then de-identify one or many .docx files.
+then de-identify one or many Word (.docx, .doc) or plain-text (.txt) files.
 """
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from .docx_processor import DeidResult, deidentify_docx_file
+from .converters import convert_doc_to_docx
+from .docx_processor import deidentify_docx_file
+from .pii_engine import DeidResult
 from .recognizers import build_analyzer_engine
+from .text_processor import deidentify_txt_file
+
+SUPPORTED_EXTENSIONS = (".docx", ".doc", ".txt")
 
 _analyzer = None
 _analyzer_lock = threading.Lock()
@@ -27,16 +33,35 @@ def get_analyzer():
 
 
 def default_output_path(input_path: str) -> str:
+    """Same folder, "_deidentified" suffix. A .doc input gets a .docx output,
+    since legacy .doc can only be converted to .docx on the way in - there's
+    no way to write back to the original binary format.
+    """
     p = Path(input_path)
-    return str(p.with_name(f"{p.stem}_deidentified{p.suffix}"))
+    suffix = ".docx" if p.suffix.lower() == ".doc" else p.suffix
+    return str(p.with_name(f"{p.stem}_deidentified{suffix}"))
 
 
 def deidentify_file(input_path: str, output_path: Optional[str] = None) -> DeidResult:
-    if not input_path.lower().endswith(".docx"):
-        raise ValueError("Only .docx files are supported.")
+    ext = Path(input_path).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        supported = ", ".join(SUPPORTED_EXTENSIONS)
+        raise ValueError(f"Unsupported file type {ext or '(none)'!r}. Supported types: {supported}.")
+
     output_path = output_path or default_output_path(input_path)
     analyzer = get_analyzer()
-    return deidentify_docx_file(input_path, output_path, analyzer)
+
+    if ext == ".txt":
+        return deidentify_txt_file(input_path, output_path, analyzer)
+
+    if ext == ".docx":
+        return deidentify_docx_file(input_path, output_path, analyzer)
+
+    # ext == ".doc": convert to .docx in a scratch dir first, then run the
+    # normal .docx pipeline against the converted copy.
+    with tempfile.TemporaryDirectory(prefix="ndis_deid_doc_convert_") as tmp_dir:
+        converted_path = convert_doc_to_docx(input_path, tmp_dir)
+        return deidentify_docx_file(converted_path, output_path, analyzer)
 
 
 @dataclass

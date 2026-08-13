@@ -1,9 +1,18 @@
 # NDIS Behaviour Support Plan De-identifier
 
 A drag-and-drop desktop app (Windows + macOS) that takes NDIS Behaviour
-Support Plan `.docx` files and produces a de-identified copy with the same
-formatting, headings and tables intact - only the identifying text is
-replaced with a placeholder tag like `[PARTICIPANT NAME]` or `[NDIS NUMBER]`.
+Support Plan files (`.docx`, legacy `.doc`, or plain `.txt`) and produces a
+de-identified copy with the same formatting, headings and tables intact
+(for Word documents) - only the identifying text is replaced with a
+placeholder tag like `[PARTICIPANT NAME]` or `[NDIS NUMBER]`.
+
+## Supported file types
+
+| Input | Output | Notes |
+|---|---|---|
+| `.docx` | `.docx` | Full formatting/structure preserved |
+| `.doc` (legacy binary Word format) | `.docx` | Converted via a locally installed [LibreOffice](https://www.libreoffice.org/download/) first - see **Design notes / limitations** |
+| `.txt` | `.txt` | Redacted line by line, structure (blank lines, line count) preserved |
 
 Built on top of [Microsoft/data-privacy-stack Presidio](../README.MD)
 (`presidio-analyzer` + spaCy NER) for PII detection, plus custom recognizers
@@ -33,18 +42,27 @@ app/
                         + AU address recognizers, AU_MEDICARE re-enabled,
                         ORGANIZATION re-enabled)
   roles.py            - maps a raw entity + nearby label text -> placeholder tag
+  pii_engine.py        - format-agnostic PII selection/classification/substitution,
+                        shared by the .docx and .txt processors
   docx_processor.py   - walks the .docx (paragraphs, tables incl. nested,
                         headers/footers), redacts in place, preserves formatting
-  deidentify.py       - top-level API used by the GUI and tests
+  text_processor.py    - redacts a plain-text file line by line
+  converters.py         - converts legacy .doc to .docx via a local LibreOffice
+  deidentify.py       - top-level API used by the GUI and tests (dispatches by
+                        extension: .docx / .doc / .txt)
   gui.py               - Tkinter + drag-and-drop desktop UI
 main.py                - PyInstaller entry point
 packaging/
   presidio_deid.spec   - PyInstaller build spec (onedir; produces .app on macOS)
 tests/
-  make_sample.py       - generates a synthetic NDIS-plan-shaped .docx fixture
-  test_deidentify.py   - asserts planted PII is gone and placeholders are present
+  make_sample.py         - generates synthetic NDIS-plan-shaped .docx/.txt fixtures
+  pii_fixtures.py         - planted-PII strings/tags shared across test files
+  test_deidentify.py      - .docx pipeline, rejection/error-handling, batch robustness
+  test_text_deidentify.py - .txt pipeline, including line-context edge cases
+  test_doc_conversion.py  - .doc conversion error handling + a real LibreOffice
+                           round-trip test (skipped if LibreOffice isn't installed)
 .github/workflows/
-  build-desktop-app.yml - CI: builds Windows + macOS artifacts on tag push
+  build-desktop-app.yml - CI: builds + tests Windows + macOS artifacts
 ```
 
 ## Running from source
@@ -127,3 +145,24 @@ them as downloadable artifacts. To use it:
   are operationally useful and not identifying on their own - survive.
 - **Hyperlink target URLs** (e.g. a `mailto:` link's underlying address, as
   opposed to its displayed text) aren't rewritten, only the visible text is.
+- **`.doc` support requires LibreOffice**: legacy binary `.doc` has no
+  reliable pure-Python reader and no pure-Python writer at all, so this app
+  doesn't parse it directly - it shells out to a locally installed
+  [LibreOffice](https://www.libreoffice.org/download/) (`soffice --headless
+  --convert-to docx`) to convert it first, then runs the normal `.docx`
+  pipeline. If LibreOffice isn't found (checked on `PATH` and common install
+  locations), the app fails with a clear message instead of guessing - a
+  redaction tool that silently mis-parses a binary format and misses text is
+  worse than one that just says "can't do this one." If you don't want to
+  install LibreOffice, open the file in Word and "Save As" `.docx` first.
+  The output is always `.docx`, even for a `.doc` input - there's no way to
+  write back to the original binary format.
+- **`.txt` context is line-based, not table-based**: `.docx` gets rich
+  context from table rows (the label and value routinely sit in different
+  cells of the same row). Plain text has no such structure, so each line is
+  classified using its own text, plus the *immediately preceding* line only
+  when that line is a bare label ending in `:` (covering the common
+  `"Participant Name:\nJohn Smith"` layout). This is deliberately
+  conservative - it does not forward context across blank lines or several
+  lines back - to avoid a label from one field bleeding into an unrelated
+  line further down the file.
