@@ -99,9 +99,15 @@ pyinstaller packaging/presidio_deid.spec --noconfirm --distpath dist --workpath 
 ```
 
 - **Windows**: produces `dist/NDIS-Deidentifier/NDIS-Deidentifier.exe` plus
-  its supporting files. Zip the whole `dist/NDIS-Deidentifier` folder to
-  distribute it; users unzip and run the `.exe` inside - no Python install
-  needed.
+  its supporting files, laid out flat (no `_internal\` subfolder - see the
+  `contents_directory` comment in the spec) to leave as much headroom as
+  possible under Windows' 260-character path limit. Build the installer with
+  `iscc packaging\installer.iss` (Inno Setup) - this is the recommended way
+  to distribute it: it installs to `%LocalAppData%\NDIS-Deidentifier` (no
+  admin rights needed) instead of leaving users to unzip a ~650MB folder
+  somewhere themselves and possibly pick a path too deep for Windows to
+  handle. The portable zip (just zip the `dist/NDIS-Deidentifier` folder)
+  still works too, for anyone who wants to run it without installing.
 - **macOS**: the same command additionally produces
   `dist/NDIS-Deidentifier.app` (PyInstaller's `BUNDLE` step is a no-op on
   Windows/Linux, so this only appears when built *on* macOS). Zip the `.app`
@@ -112,16 +118,19 @@ PyInstaller on an actual Mac, and a `.exe` only on Windows. This repo is
 being developed on Windows, so the Windows build was built and smoke-tested
 locally; the macOS build has to come from either a Mac or CI.
 
-### Getting the macOS build via CI
+### Getting the macOS build (and the Windows installer) via CI
 
-`.github/workflows/build-desktop-app.yml` builds both platforms and uploads
-them as downloadable artifacts. To use it:
+`.github/workflows/build-desktop-app.yml` builds both platforms (and, on the
+Windows runner, the Inno Setup installer too - `windows-latest` ships Inno
+Setup preinstalled) and uploads them as downloadable artifacts. To use it:
 
 1. `git init` this repo (or push it into an existing GitHub repo) and push to GitHub.
 2. Push a tag (`git tag v1.0.0 && git push --tags`) or trigger it manually
    from the Actions tab ("Run workflow").
-3. Download the `NDIS-Deidentifier-macos` and `NDIS-Deidentifier-windows`
-   artifacts from the completed workflow run.
+3. Download the artifacts from the completed workflow run:
+   `NDIS-Deidentifier-macos`, `NDIS-Deidentifier-windows` (portable zip), and
+   `NDIS-Deidentifier-windows-installer` (`NDIS-Deidentifier-Setup.exe` -
+   hand this one to end users).
 
 ## Design notes / limitations
 

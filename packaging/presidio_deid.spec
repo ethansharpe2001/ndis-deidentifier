@@ -79,6 +79,14 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    # Default onedir layout puts everything under an "_internal\" subfolder,
+    # which costs 10 characters on every single bundled file's path - on
+    # Windows that's the difference between fitting under the 260-character
+    # MAX_PATH limit and not, especially for deeply-hashed filenames numpy
+    # ships (e.g. its OpenBLAS DLL's name alone is ~90 characters). "." puts
+    # everything directly next to the exe instead (the pre-6.0 PyInstaller
+    # layout), buying back that margin everywhere at once.
+    contents_directory=".",
 )
 
 coll = COLLECT(

@@ -60,8 +60,33 @@ jobs:
         run: Compress-Archive -Path "${{ matrix.dist-path }}" -DestinationPath "${{ matrix.artifact-name }}.zip"
         shell: pwsh
 
+      # Portable zip still ships (below) for anyone who wants it, but a real
+      # installer is the primary distribution path: it removes the manual
+      # "extract this huge zip somewhere" step, and defaults the install
+      # location to somewhere already verified to leave plenty of headroom
+      # under Windows' 260-character path limit (see installer.iss).
+      # windows-latest ships Inno Setup preinstalled; the choco fallback is
+      # just belt-and-braces in case that ever changes.
+      - name: Build Windows installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc packaging\installer.iss
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
           path: ${{ matrix.artifact-name }}.zip
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: NDIS-Deidentifier-windows-installer
+          path: dist/installer/NDIS-Deidentifier-Setup.exe
           retention-days: 30
