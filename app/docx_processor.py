@@ -24,12 +24,12 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Iterator, List, Tuple
+from typing import List, Tuple
 
 from docx import Document
 from docx.document import Document as DocumentObject
 from docx.oxml.ns import qn
-from docx.table import Table, _Cell
+from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
@@ -46,24 +46,6 @@ class DeidResult:
     @property
     def total(self) -> int:
         return sum(self.counts.values())
-
-
-def _iter_block_items(parent) -> Iterator["Paragraph | Table"]:
-    """Yields each paragraph and table that are direct children of `parent`,
-    in document order. `parent` is a Document or a table _Cell.
-    """
-    if isinstance(parent, DocumentObject):
-        parent_elm = parent.element.body
-    elif isinstance(parent, _Cell):
-        parent_elm = parent._tc
-    else:
-        raise ValueError(f"Unsupported parent type: {type(parent)}")
-
-    for child in parent_elm.iterchildren():
-        if child.tag == qn("w:p"):
-            yield Paragraph(child, parent)
-        elif child.tag == qn("w:tbl"):
-            yield Table(child, parent)
 
 
 def _get_runs(paragraph: Paragraph) -> List[Run]:
@@ -157,7 +139,7 @@ def _process_paragraph(paragraph: Paragraph, analyzer, stats: Counter, extra_con
 
 
 def _process_container(parent, analyzer, stats: Counter, extra_context: str = "") -> None:
-    for block in _iter_block_items(parent):
+    for block in parent.iter_inner_content():
         if isinstance(block, Paragraph):
             _process_paragraph(block, analyzer, stats, extra_context)
         elif isinstance(block, Table):
